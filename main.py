@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from enum import Enum
 from typing import Optional
 from dotenv import load_dotenv
+from tasks import notify_item_created
 import os
 
 load_dotenv()
@@ -64,7 +65,9 @@ async def create_item(item: ItemBase) -> Item:
     result = await supabase.table("items").insert(item.model_dump(mode="json")).execute()
     if not result.data:
         raise HTTPException(status_code=400, detail="아이템 생성 실패")
-    return Item(**result.data[0])
+    created = Item(**result.data[0])
+    notify_item_created.delay(created.id, created.name)
+    return created
 
 
 @app.put("/items/{item_id}", status_code=202)
