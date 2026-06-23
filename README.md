@@ -61,6 +61,53 @@ uv run fastapi dev main.py
 
 `color`는 `red` / `green` / `blue` 중 하나 또는 생략 가능.
 
+## Celery 백그라운드 워커
+
+`POST /items`로 아이템 등록 시 Celery가 백그라운드에서 알림 태스크를 처리합니다.
+
+### 흐름
+
+```
+POST /items
+  → Supabase 저장 (즉시 201 응답)
+  → notify_item_created.delay()  ← Redis 큐에 적재
+       ↓
+  Celery Worker
+  → 80% 성공: [알림] 등록 완료: {name}
+  → 20% 실패: retry (5초 간격, 최대 3회)
+               └→ 초과 시 [DLQ] 실패 기록 출력
+```
+
+### 실행 순서
+
+**1. Redis 실행**
+
+```bash
+docker run -d -p 6379:6379 redis:7-alpine
+```
+
+**2. Celery 워커 실행**
+
+```bash
+uv run celery -A celery_app worker --loglevel=info
+```
+
+**3. Flower 모니터링 실행**
+
+```bash
+uv run celery -A celery_app flower --port=5555
+```
+
+`http://localhost:5555` 에서 태스크 현황을 실시간으로 확인할 수 있습니다.
+
+### 주요 설정 (`celery_app.py`)
+
+| 설정 | 값 | 설명 |
+|------|----|------|
+| `task_acks_late` | `True` | 처리 완료 후 ACK → 크래시 시 재처리 보장 |
+| `worker_prefetch_multiplier` | `1` | 워커당 1개만 가져옴 → 중복 최소화 |
+| `include` | `["tasks"]` | 워커 시작 시 tasks.py 자동 등록 |
+
 ## 개발
 
 ```bash
@@ -75,5 +122,7 @@ uv run ruff format .
 
 - [FastAPI](https://fastapi.tiangolo.com/)
 - [Supabase Python](https://supabase.com/docs/reference/python/introduction)
+- [Celery](https://docs.celeryq.dev/)
+- [Flower](https://flower.readthedocs.io/)
 - [uv](https://docs.astral.sh/uv/)
 - [Ruff](https://docs.astral.sh/ruff/)
